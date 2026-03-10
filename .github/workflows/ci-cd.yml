@@ -1,0 +1,220 @@
+name: CI / CD
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Cancel in-flight runs for the same ref
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY:   ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+# ──────────────────────────────────────────────────────────────────────────────
+jobs:
+
+  # ── 1. Lint & Test ────────────────────────────────────────────────────────
+  test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests with coverage
+        run: npm run test:ci
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7
+
+  # ── 2. Build & Push Docker image ─────────────────────────────────────────
+  build:
+    name: Build & Push Image
+    runs-on: ubuntu-latest
+    needs: test
+    # Only push images on pushes to main (not on PRs)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
+    permissions:
+      contents: read
+      packages: write
+      id-token: write   # needed for OIDC / cosign
+
+    outputs:
+      image-digest: ${{ steps.build-push.outputs.digest }}
+      image-tag:    ${{ steps.meta.outputs.tags }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up QEMU (multi-arch support)
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=short
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        id: build-push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          target: runtime
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to:   type=gha,mode=max
+          build-args: |
+            APP_VERSION=${{ github.sha }}
+          platforms: linux/amd64,linux/arm64
+
+      - name: Image vulnerability scan (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          format: sarif
+          output: trivy-results.sarif
+          severity: CRITICAL,HIGH
+          exit-code: "1"   # fail build on critical/high CVEs
+
+      - name: Upload Trivy SARIF
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+
+  # ── 3. Deploy to Staging ──────────────────────────────────────────────────
+  deploy-staging:
+    name: Deploy → Staging
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: staging
+      url: http://${{ secrets.ALB_DNS }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to EC2 via SSH (rolling – zero downtime)
+        env:
+          SSH_KEY:    ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          EC2_HOST:   ${{ secrets.EC2_HOST_STAGING }}
+          IMAGE:      "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.image-digest }}"
+        run: |
+          # Write ephemeral SSH key
+          echo "$SSH_KEY" > /tmp/deploy_key && chmod 600 /tmp/deploy_key
+
+          ssh -i /tmp/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=15 \
+            ec2-user@$EC2_HOST << ENDSSH
+              set -euo pipefail
+              cd /opt/app
+
+              # Pull new image first (no downtime yet)
+              docker pull $IMAGE
+
+              # Update image reference and do a rolling restart:
+              # Compose recreates only the changed container; db is untouched
+              IMAGE=$IMAGE docker compose up -d --no-deps --pull never app
+
+              # Wait for health check to pass (up to 60 s)
+              for i in \$(seq 1 12); do
+                STATUS=\$(docker inspect --format='{{.State.Health.Status}}' app 2>/dev/null || echo "starting")
+                echo "Health: \$STATUS (attempt \$i/12)"
+                [ "\$STATUS" = "healthy" ] && break
+                sleep 5
+              done
+
+              [ "\$STATUS" = "healthy" ] || { echo "Container unhealthy – rolling back"; docker compose up -d --no-deps app; exit 1; }
+              echo "Deploy successful"
+          ENDSSH
+
+      - name: Smoke test staging
+        run: |
+          sleep 5
+          curl -sf http://${{ secrets.ALB_DNS }}/health | jq .
+
+  # ── 4. Deploy to Production (manual approval required) ───────────────────
+  deploy-production:
+    name: Deploy → Production
+    runs-on: ubuntu-latest
+    needs: deploy-staging
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment:
+      name: production        # ← configure "Required reviewers" here in GitHub
+      url: http://${{ secrets.ALB_DNS_PROD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Deploy to EC2 via SSH (production)
+        env:
+          SSH_KEY:   ${{ secrets.EC2_SSH_PRIVATE_KEY_PROD }}
+          EC2_HOST:  ${{ secrets.EC2_HOST_PROD }}
+          IMAGE:     "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.image-digest }}"
+        run: |
+          echo "$SSH_KEY" > /tmp/deploy_key && chmod 600 /tmp/deploy_key
+
+          ssh -i /tmp/deploy_key \
+            -o StrictHostKeyChecking=no \
+            -o ConnectTimeout=15 \
+            ec2-user@$EC2_HOST << ENDSSH
+              set -euo pipefail
+              cd /opt/app
+
+              docker pull $IMAGE
+              IMAGE=$IMAGE docker compose up -d --no-deps --pull never app
+
+              for i in \$(seq 1 12); do
+                STATUS=\$(docker inspect --format='{{.State.Health.Status}}' app 2>/dev/null || echo "starting")
+                echo "Health: \$STATUS (attempt \$i/12)"
+                [ "\$STATUS" = "healthy" ] && break
+                sleep 5
+              done
+
+              [ "\$STATUS" = "healthy" ] || { echo "Container unhealthy – rolling back"; docker compose up -d --no-deps app; exit 1; }
+              echo "Production deploy successful"
+          ENDSSH
+
+      - name: Smoke test production
+        run: |
+          sleep 5
+          curl -sf http://${{ secrets.ALB_DNS_PROD }}/health | jq .
