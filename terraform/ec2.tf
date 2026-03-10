@@ -52,7 +52,7 @@ resource "aws_security_group" "ec2" {
   tags = { Name = "${var.project_name}-${var.environment}-ec2-sg" }
 }
 
-# ── IAM Role for EC2 ─────────────────────────────────────────────────────────
+# IAM Role for EC2 
 resource "aws_iam_role" "ec2" {
   name = "${var.project_name}-${var.environment}-ec2-role"
   assume_role_policy = jsonencode({
@@ -75,13 +75,13 @@ resource "aws_iam_instance_profile" "ec2" {
   role = aws_iam_role.ec2.name
 }
 
-# ── EC2 User Data – installs Docker, runs Redis + app containers ──────────────
+# EC2 User Data – installs Docker, runs Redis,app containers
 locals {
   user_data = <<-EOF
     #!/bin/bash
     set -euxo pipefail
 
-    # ── System updates & Docker ──────────────────────────────────────────────
+    #  System updates & Docker 
     dnf update -y
     dnf install -y docker aws-cli jq
     systemctl enable --now docker
@@ -93,7 +93,7 @@ locals {
       -o /usr/local/lib/docker/cli-plugins/docker-compose
     chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 
-    # ── Write compose file ───────────────────────────────────────────────────
+    #  Write compose file
     mkdir -p /opt/app
     cat > /opt/app/docker-compose.yml <<COMPOSE
     version: "3.9"
@@ -149,12 +149,12 @@ locals {
           start_period: 15s
     COMPOSE
 
-    # ── Start the stack ──────────────────────────────────────────────────────
+    # Start the stack 
     cd /opt/app
     docker compose pull
     docker compose up -d
 
-    # ── Systemd unit so stack restarts after reboot ──────────────────────────
+    # Systemd unit so stack restarts after reboot 
     cat > /etc/systemd/system/app-stack.service <<UNIT
     [Unit]
     Description=App Docker Compose Stack
@@ -178,7 +178,7 @@ locals {
   EOF
 }
 
-# ── EC2 Instance (t3.micro = free tier eligible) ──────────────────────────────
+# EC2 Instance
 resource "aws_instance" "app" {
   ami                    = data.aws_ami.al2023.id
   instance_type          = var.ec2_instance_type
@@ -207,14 +207,14 @@ resource "aws_instance" "app" {
   tags = { Name = "${var.project_name}-${var.environment}-server" }
 }
 
-# ── ALB Target Group attachment ───────────────────────────────────────────────
+# ALB Target Group attachment
 resource "aws_lb_target_group_attachment" "app_blue" {
   target_group_arn = aws_lb_target_group.blue.arn
   target_id        = aws_instance.app.id
   port             = var.container_port
 }
 
-# ── Elastic IP ────────────────────────────────────────────────────────────────
+# Elastic IP 
 resource "aws_eip" "app" {
   instance = aws_instance.app.id
   domain   = "vpc"

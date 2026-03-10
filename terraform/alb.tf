@@ -68,7 +68,7 @@ resource "aws_lb_listener" "http" {
   lifecycle { ignore_changes = [default_action] }
 }
 
-# ── Outputs ───────────────────────────────────────────────────────────────────
+#  Outputs
 output "alb_dns_name"  { value = aws_lb.main.dns_name }
 output "app_url"       { value = "http://${aws_lb.main.dns_name}" }
 output "blue_tg_arn"   { value = aws_lb_target_group.blue.arn }

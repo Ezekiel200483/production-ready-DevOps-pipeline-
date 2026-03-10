@@ -65,5 +65,5 @@ variable "ec2_public_key" {
 variable "ssh_allowed_cidr" {
   description = "CIDR allowed to SSH into the EC2 instance (use your own IP)"
   type        = string
-  default     = "0.0.0.0/0"   # tighten this to your IP in tfvars!
+  default     = "0.0.0.0/0"   
 }

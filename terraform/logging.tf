@@ -5,7 +5,7 @@ resource "aws_cloudwatch_log_group" "app" {
   retention_in_days = 30
 }
 
-# ── Allow EC2 role to write logs ──────────────────────────────────────────────
+#  Allow EC2 role to write logs 
 resource "aws_iam_role_policy" "ec2_cloudwatch" {
   name = "cloudwatch-logs"
   role = aws_iam_role.ec2.id
