@@ -192,7 +192,7 @@ resource "aws_instance" "app" {
 
   root_block_device {
     volume_type           = "gp3"
-    volume_size           = 20
+    volume_size           = 30
     encrypted             = true
     delete_on_termination = true
   }
@@ -219,11 +219,4 @@ resource "aws_eip" "app" {
   instance = aws_instance.app.id
   domain   = "vpc"
   tags     = { Name = "${var.project_name}-${var.environment}-eip" }
-}
-
-# ── Outputs ───────────────────────────────────────────────────────────────────
-output "ec2_public_ip"   { value = aws_eip.app.public_ip }
-output "ec2_instance_id" { value = aws_instance.app.id }
-output "ssh_command" {
-  value = "ssh -i ~/.ssh/your-key.pem ec2-user@${aws_eip.app.public_ip}"
 }
