@@ -83,7 +83,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ghcr.io/${{ github.repository_owner }}/nodejs-devops-app
+          images: ghcr.io/ezekiel200483/nodejs-devops-app
           tags: |
             type=sha,format=short
             type=ref,event=branch
@@ -138,7 +138,7 @@ jobs:
         env:
           SSH_KEY:    ${{ secrets.EC2_SSH_PRIVATE_KEY }}
           EC2_HOST:   ${{ secrets.EC2_HOST_STAGING }}
-          IMAGE:      "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.image-digest }}"
+          IMAGE:      "ghcr.io/ezekiel200483/nodejs-devops-app@${{ needs.build.outputs.image-digest }}"
         run: |
           # Write ephemeral SSH key
           echo "$SSH_KEY" | tr -d '\r' > /tmp/deploy_key && chmod 600 /tmp/deploy_key
