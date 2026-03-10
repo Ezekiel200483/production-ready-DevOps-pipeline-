@@ -178,7 +178,7 @@ jobs:
         env:
           SSH_KEY:  ${{ secrets.EC2_SSH_PRIVATE_KEY_PROD }}
           EC2_HOST: ${{ secrets.EC2_HOST_PROD }}
-          IMAGE:    "ghcr.io/ezekiel200483/nodejs-devops-app@${{ needs.build.outputs.image-digest }}"
+          IMAGE:    "ghcr.io/ezekiel200483/nodejs-devops-app:latest"
         run: |
           echo "$SSH_KEY" | tr -d '\r' > /tmp/deploy_key && chmod 600 /tmp/deploy_key
 
