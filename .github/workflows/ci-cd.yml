@@ -156,7 +156,7 @@ jobs:
               # Update image reference and do a rolling restart:
               # Compose recreates only the changed container; db is untouched
               # Update image in compose file and restart
-              sed -i "s|image:.*nodejs-devops-app.*|image: $IMAGE|g" /opt/app/docker-compose.yml
+              sudo sed -i "s|image:.*nodejs-devops-app.*|image: $IMAGE|g" /opt/app/docker-compose.yml
               docker compose -f /opt/app/docker-compose.yml up -d --no-deps --pull never app
 
               # Wait for health check to pass (up to 60 s)
@@ -206,7 +206,7 @@ jobs:
 
               docker pull $IMAGE
               # Update image in compose file and restart
-              sed -i "s|image:.*nodejs-devops-app.*|image: $IMAGE|g" /opt/app/docker-compose.yml
+              sudo sed -i "s|image:.*nodejs-devops-app.*|image: $IMAGE|g" /opt/app/docker-compose.yml
               docker compose -f /opt/app/docker-compose.yml up -d --no-deps --pull never app
 
               for i in \$(seq 1 12); do
