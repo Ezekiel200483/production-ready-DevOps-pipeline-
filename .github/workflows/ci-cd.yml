@@ -127,7 +127,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment:
       name: staging
-      url: http://${{ secrets.ALB_DNS }}
+      url: https://github.com/${{ github.repository }}/actions
 
     steps:
       - uses: actions/checkout@v4
@@ -180,7 +180,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment:
       name: production        # ← configure "Required reviewers" here in GitHub
-      url: http://${{ secrets.ALB_DNS_PROD }}
+      url: https://github.com/${{ github.repository }}/actions
 
     steps:
       - uses: actions/checkout@v4
