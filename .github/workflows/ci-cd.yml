@@ -6,19 +6,16 @@ on:
   pull_request:
     branches: [main]
 
-# Cancel in-flight runs for the same ref
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
   REGISTRY:   ghcr.io
-  IMAGE_NAME: ${{ github.repository_owner }}/nodejs-devops-app
+  IMAGE_NAME: ezekiel200483/nodejs-devops-app
 
-# ──────────────────────────────────────────────────────────────────────────────
 jobs:
 
-  # ── 1. Lint & Test ────────────────────────────────────────────────────────
   test:
     name: Lint & Test
     runs-on: ubuntu-latest
@@ -45,12 +42,10 @@ jobs:
           path: coverage/
           retention-days: 7
 
-  # ── 2. Build & Push Docker image ─────────────────────────────────────────
   build:
     name: Build & Push Image
     runs-on: ubuntu-latest
     needs: test
-    # Only push images on pushes to main (not on PRs)
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     permissions:
@@ -61,12 +56,11 @@ jobs:
 
     outputs:
       image-digest: ${{ steps.build-push.outputs.digest }}
-      image-tag:    ${{ steps.meta.outputs.tags }}
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up QEMU (multi-arch support)
+      - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
@@ -87,7 +81,6 @@ jobs:
           tags: |
             type=sha,format=short
             type=ref,event=branch
-            type=semver,pattern={{version}}
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push Docker image
@@ -101,19 +94,17 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to:   type=gha,mode=max
-          build-args: |
-            APP_VERSION=${{ github.sha }}
           platforms: linux/amd64,linux/arm64
 
       - name: Image vulnerability scan (Trivy)
         uses: aquasecurity/trivy-action@master
         continue-on-error: true
         with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+          image-ref: ghcr.io/ezekiel200483/nodejs-devops-app:latest
           format: sarif
           output: trivy-results.sarif
           severity: CRITICAL,HIGH
-          exit-code: "0"  # fail build on critical/high CVEs
+          exit-code: "0"
 
       - name: Upload Trivy SARIF
         uses: github/codeql-action/upload-sarif@v4
@@ -121,7 +112,6 @@ jobs:
         with:
           sarif_file: trivy-results.sarif
 
-  # ── 3. Deploy to Staging ──────────────────────────────────────────────────
   deploy-staging:
     name: Deploy → Staging
     runs-on: ubuntu-latest
@@ -134,13 +124,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy to EC2 via SSH (rolling – zero downtime)
+      - name: Deploy to EC2 via SSH
         env:
-          SSH_KEY:    ${{ secrets.EC2_SSH_PRIVATE_KEY }}
-          EC2_HOST:   ${{ secrets.EC2_HOST_STAGING }}
-          IMAGE:      "ghcr.io/ezekiel200483/nodejs-devops-app@${{ needs.build.outputs.image-digest }}"
+          SSH_KEY:  ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          EC2_HOST: ${{ secrets.EC2_HOST_STAGING }}
+          IMAGE:    "ghcr.io/ezekiel200483/nodejs-devops-app@${{ needs.build.outputs.image-digest }}"
         run: |
-          # Write ephemeral SSH key
           echo "$SSH_KEY" | tr -d '\r' > /tmp/deploy_key && chmod 600 /tmp/deploy_key
 
           ssh -i /tmp/deploy_key \
@@ -148,52 +137,48 @@ jobs:
             -o ConnectTimeout=15 \
             ec2-user@$EC2_HOST << ENDSSH
               set -euo pipefail
-              cd /opt/app
 
-              # Pull new image first (no downtime yet)
-              docker pull $IMAGE
+              sudo docker pull $IMAGE
 
-              # Update image reference and do a rolling restart:
-              # Compose recreates only the changed container; db is untouched
-              # Update image in compose file and restart
               sudo sed -i "s|image:.*nodejs-devops-app.*|image: $IMAGE|g" /opt/app/docker-compose.yml
-              docker compose -f /opt/app/docker-compose.yml up -d --no-deps --pull never app
 
-              # Wait for health check to pass (up to 60 s)
+              sudo docker compose -f /opt/app/docker-compose.yml up -d --no-deps --pull never app
+
               for i in \$(seq 1 12); do
-                STATUS=\$(docker inspect --format='{{.State.Health.Status}}' app 2>/dev/null || echo "starting")
+                STATUS=\$(sudo docker inspect --format='{{.State.Health.Status}}' app-app-1 2>/dev/null || echo "starting")
                 echo "Health: \$STATUS (attempt \$i/12)"
                 [ "\$STATUS" = "healthy" ] && break
                 sleep 5
               done
 
-              [ "\$STATUS" = "healthy" ] || { echo "Container unhealthy – rolling back"; docker compose up -d --no-deps app; exit 1; }
+              [ "\$STATUS" = "healthy" ] || { echo "Container unhealthy – rolling back"; sudo docker compose -f /opt/app/docker-compose.yml up -d --no-deps app; exit 1; }
               echo "Deploy successful"
           ENDSSH
 
-      - name: Smoke test staging
+      - name: Smoke test
+        env:
+          ALB_DNS: ${{ secrets.ALB_DNS }}
         run: |
           sleep 5
-          curl -sf http://${{ secrets.ALB_DNS }}/health | jq .
+          curl -sf http://$ALB_DNS/health
 
-  # ── 4. Deploy to Production (manual approval required) ───────────────────
   deploy-production:
     name: Deploy → Production
     runs-on: ubuntu-latest
     needs: deploy-staging
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment:
-      name: production        # ← configure "Required reviewers" here in GitHub
+      name: production
       url: https://github.com/${{ github.repository }}/actions
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy to EC2 via SSH (production)
+      - name: Deploy to EC2 via SSH
         env:
-          SSH_KEY:   ${{ secrets.EC2_SSH_PRIVATE_KEY_PROD }}
-          EC2_HOST:  ${{ secrets.EC2_HOST_PROD }}
-          IMAGE:     "${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ needs.build.outputs.image-digest }}"
+          SSH_KEY:  ${{ secrets.EC2_SSH_PRIVATE_KEY_PROD }}
+          EC2_HOST: ${{ secrets.EC2_HOST_PROD }}
+          IMAGE:    "ghcr.io/ezekiel200483/nodejs-devops-app@${{ needs.build.outputs.image-digest }}"
         run: |
           echo "$SSH_KEY" | tr -d '\r' > /tmp/deploy_key && chmod 600 /tmp/deploy_key
 
@@ -202,25 +187,27 @@ jobs:
             -o ConnectTimeout=15 \
             ec2-user@$EC2_HOST << ENDSSH
               set -euo pipefail
-              cd /opt/app
 
-              docker pull $IMAGE
-              # Update image in compose file and restart
+              sudo docker pull $IMAGE
+
               sudo sed -i "s|image:.*nodejs-devops-app.*|image: $IMAGE|g" /opt/app/docker-compose.yml
-              docker compose -f /opt/app/docker-compose.yml up -d --no-deps --pull never app
+
+              sudo docker compose -f /opt/app/docker-compose.yml up -d --no-deps --pull never app
 
               for i in \$(seq 1 12); do
-                STATUS=\$(docker inspect --format='{{.State.Health.Status}}' app 2>/dev/null || echo "starting")
+                STATUS=\$(sudo docker inspect --format='{{.State.Health.Status}}' app-app-1 2>/dev/null || echo "starting")
                 echo "Health: \$STATUS (attempt \$i/12)"
                 [ "\$STATUS" = "healthy" ] && break
                 sleep 5
               done
 
-              [ "\$STATUS" = "healthy" ] || { echo "Container unhealthy – rolling back"; docker compose up -d --no-deps app; exit 1; }
+              [ "\$STATUS" = "healthy" ] || { echo "Container unhealthy – rolling back"; sudo docker compose -f /opt/app/docker-compose.yml up -d --no-deps app; exit 1; }
               echo "Production deploy successful"
           ENDSSH
 
-      - name: Smoke test production
+      - name: Smoke test
+        env:
+          ALB_DNS: ${{ secrets.ALB_DNS_PROD }}
         run: |
           sleep 5
-          curl -sf http://${{ secrets.ALB_DNS_PROD }}/health | jq .
+          curl -sf http://$ALB_DNS/health
