@@ -1,4 +1,4 @@
-# ── ACM Certificate ───────────────────────────────────────────────────────────
+#  ACM Certificate 
 data "aws_route53_zone" "main" {
   name         = var.domain_name
   private_zone = false
@@ -31,7 +31,7 @@ resource "aws_acm_certificate_validation" "app" {
   validation_record_fqdns = [for r in aws_route53_record.cert_validation : r.fqdn]
 }
 
-# ── Application Load Balancer ─────────────────────────────────────────────────
+# Application Load Balancer 
 resource "aws_lb" "main" {
   name               = "${var.project_name}-${var.environment}-alb"
   internal           = false
@@ -42,7 +42,7 @@ resource "aws_lb" "main" {
   tags = { Name = "${var.project_name}-${var.environment}-alb" }
 }
 
-# ── Target Groups ─────────────────────────────────────────────────────────────
+#  Target Groups 
 resource "aws_lb_target_group" "blue" {
   name        = "${var.project_name}-${var.environment}-blue"
   port        = var.container_port
@@ -83,7 +83,7 @@ resource "aws_lb_target_group" "green" {
   tags = { Name = "${var.project_name}-${var.environment}-green-tg" }
 }
 
-# ── HTTP → HTTPS Redirect ─────────────────────────────────────────────────────
+# HTTP → HTTPS Redirect 
 resource "aws_lb_listener" "http" {
   load_balancer_arn = aws_lb.main.arn
   port              = 80
@@ -99,7 +99,7 @@ resource "aws_lb_listener" "http" {
   }
 }
 
-# ── HTTPS Listener ────────────────────────────────────────────────────────────
+#  HTTPS Listener
 resource "aws_lb_listener" "https" {
   load_balancer_arn = aws_lb.main.arn
   port              = 443
@@ -115,7 +115,7 @@ resource "aws_lb_listener" "https" {
   lifecycle { ignore_changes = [default_action] }
 }
 
-# ── Route 53 record ───────────────────────────────────────────────────────────
+#  Route 53 record 
 resource "aws_route53_record" "app" {
   zone_id = data.aws_route53_zone.main.zone_id
   name    = "${var.app_subdomain}.${var.domain_name}"
@@ -128,7 +128,7 @@ resource "aws_route53_record" "app" {
   }
 }
 
-# ── Outputs ───────────────────────────────────────────────────────────────────
+# Outputs 
 output "alb_dns_name"      { value = aws_lb.main.dns_name }
 output "app_url"           { value = "https://${var.app_subdomain}.${var.domain_name}" }
 output "blue_tg_arn"       { value = aws_lb_target_group.blue.arn }

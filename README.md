@@ -1,7 +1,8 @@
 # Node.js DevOps Pipeline
 
-A Node.js web application built with a full DevOps pipeline including containerisation,
-CI/CD automation, and cloud infrastructure on AWS.
+A Node.js web application built with a complete DevOps pipeline including 
+containerisation, CI/CD automation, and cloud infrastructure on AWS with 
+HTTPS using a custom domain.
 
 ---
 
@@ -28,20 +29,19 @@ cp .env.example .env.local
 docker compose up --build
 ```
 
-The first time takes a couple of minutes to pull images and build.
-You'll know it's ready when you see this in the logs:
+First time takes a couple of minutes. You'll know it's ready when you see:
 ```
 app | {"message":"Server listening","port":3000}
 app | {"message":"Redis connected"}
 ```
 
-**4. Run tests**
+**4. Run the tests**
 ```bash
 npm install
 npm test
 ```
 
-**5. Stop the app**
+**5. Stop everything**
 ```bash
 docker compose down
 ```
@@ -50,31 +50,30 @@ docker compose down
 
 ## How to Access the App
 
-Locally the app runs on `http://localhost:3000`
+The app is live at **https://app.ezekiel.ink**
 
-On AWS the app is accessed via the Load Balancer DNS:
-```bash
-terraform output application_url
+Open these directly in your browser:
+```
+https://app.ezekiel.ink/health
+https://app.ezekiel.ink/status
 ```
 
-**Endpoints:**
-
-| Method | Path | What it does |
-|---|---|---|
-| GET | `/health` | Quick liveness check |
-| GET | `/status` | Shows Redis connection status |
-| POST | `/process` | Accepts a JSON payload and stores it in Redis |
-
-**Example requests:**
+For the POST endpoint use curl or Postman:
 ```bash
-curl http://localhost:3000/health
-
-curl http://localhost:3000/status
-
-curl -X POST http://localhost:3000/process \
+curl -X POST https://app.ezekiel.ink/process \
   -H "Content-Type: application/json" \
   -d '{"data": "hello world"}'
 ```
+
+Locally the app runs on `http://localhost:3000` with the same endpoints.
+
+**Available endpoints:**
+
+| Method | Path | What it does |
+|---|---|---|
+| GET | `/health` | Quick liveness check — always returns ok |
+| GET | `/status` | Shows Redis connection status |
+| POST | `/process` | Accepts JSON data, stores it in Redis, returns a result |
 
 ---
 
@@ -82,15 +81,16 @@ curl -X POST http://localhost:3000/process \
 
 **What you need**
 - AWS account
-- Terraform 1.7+
+- Terraform 
 - AWS CLI
+- A domain name pointed to AWS Route 53
 
 **1. Configure AWS CLI**
 ```bash
 aws configure
 ```
 
-**2. Create an SSH key**
+**2. Generate an SSH key**
 ```bash
 ssh-keygen -t rsa -b 4096 -f ~/.ssh/nodejs-app-key -N ""
 ```
@@ -113,7 +113,7 @@ aws dynamodb create-table \
   --region us-east-1
 ```
 
-Update `terraform/main.tf` with your bucket name:
+Update the bucket name in `terraform/main.tf`:
 ```hcl
 backend "s3" {
   bucket = "nodejs-app-tfstate-yourname"
@@ -126,7 +126,7 @@ cd terraform
 cp terraform.tfvars.example terraform.tfvars
 ```
 
-Edit `terraform.tfvars`:
+Fill in `terraform.tfvars`:
 ```hcl
 aws_region        = "us-east-1"
 project_name      = "nodejs-app"
@@ -135,18 +135,22 @@ container_image   = "ghcr.io/ezekiel200483/nodejs-devops-app:latest"
 ec2_instance_type = "t3.micro"
 ec2_public_key    = "ssh-rsa AAAA..."
 ssh_allowed_cidr  = "0.0.0.0/0"
+domain_name       = "ezekiel.ink"
+app_subdomain     = "app"
 ```
 
-**5. Run Terraform**
+**5. Deploy**
 ```bash
 terraform init
 terraform plan
 terraform apply
 ```
 
-**6. Add these secrets to GitHub**
+Takes about 5-10 minutes. The ACM certificate validation is the slowest part.
 
-Go to your repo → Settings → Secrets and variables → Actions:
+**6. Add GitHub secrets**
+
+Go to repo → Settings → Secrets and variables → Actions:
 
 | Secret | Value |
 |---|---|
@@ -154,19 +158,16 @@ Go to your repo → Settings → Secrets and variables → Actions:
 | `EC2_HOST_STAGING` | EC2 IP from terraform output |
 | `EC2_SSH_PRIVATE_KEY_PROD` | Same as staging |
 | `EC2_HOST_PROD` | Same as staging |
-| `ALB_DNS` | ALB DNS from terraform output |
-| `ALB_DNS_PROD` | Same as ALB_DNS |
 
-**7. Deploy**
+**7. Push to deploy**
 ```bash
 git push origin main
 ```
 
-Check the GitHub Actions tab to watch the pipeline run.
-Production deployment requires manual approval — go to Actions, click the
-deploy-production job and hit Approve.
+Watch it run in the GitHub Actions tab. Production deployment requires 
+manual approval — click into the deploy-production job and hit Approve.
 
-**To tear everything down:**
+**To destroy everything:**
 ```bash
 terraform destroy
 ```
@@ -177,60 +178,75 @@ terraform destroy
 
 ### Security
 
-I made the container run as a non-root user because if someone exploits a
-vulnerability in the app, they won't have root access to the underlying host.
-This is something I've seen recommended widely and it's a simple change that
-makes a real difference.
+I ran the app as a non-root user inside Docker. The reason for this is simple
+— if someone finds a vulnerability in the app and exploits it, they still
+can't touch anything outside the container. It's a small change that removes
+a whole class of risk.
 
-I also set the container filesystem to read-only so nothing can be written to
-the app directory at runtime. Only /tmp is writable, which the app uses for
-temporary files.
+The container filesystem is also set to read-only. Nothing can be written to
+the app directory while it's running, only /tmp is writable. This means even
+if someone gets code execution inside the container they can't modify the
+application files.
 
-On the EC2 side I enforced IMDSv2, which means any request to the instance
-metadata service has to include a session token. This protects against a class
-of attacks where a vulnerability in the app is used to steal AWS credentials
-from the metadata endpoint.
+For HTTPS I used AWS Certificate Manager to provision a TLS certificate for
+app.ezekiel.ink and attached it to the Load Balancer. All HTTP traffic on
+port 80 gets redirected to HTTPS automatically. The certificate renews itself
+so there's nothing to maintain.
 
-For secrets I made sure nothing sensitive ever touches the codebase. Database
-credentials and SSH keys live in GitHub Secrets and AWS SSM Parameter Store.
-The .env.local and terraform.tfvars files are in .gitignore so there's no
-chance of accidentally committing them.
+On the EC2 I enforced IMDSv2 which requires a session token for any request
+to the instance metadata service. This blocks a common attack where a
+vulnerability in the app is used to steal the AWS credentials attached to
+the server.
+
+Nothing sensitive is hardcoded anywhere. SSH keys and server addresses live
+in GitHub Secrets. The .env.local and terraform.tfvars files are in
+.gitignore so there's no way to accidentally commit them.
 
 ### CI/CD
 
-I structured the pipeline so tests always run first. If any test fails the
-pipeline stops and nothing gets built or deployed. This means the Docker image
-in the registry is always from passing code.
+The pipeline runs tests before anything else. If a test fails the whole
+pipeline stops — no image gets built, nothing gets deployed. This means
+whatever is in the registry has always passed the test suite.
 
-For deployments I added a health check loop that waits up to 60 seconds after
-starting the new container. If the app doesn't become healthy in time it
-automatically rolls back to the previous version. I added this after running
-into a situation where a bad deploy would have caused downtime without it.
+After deploying the new container the pipeline waits and checks the /health
+endpoint every 5 seconds for up to 60 seconds. If the container never becomes
+healthy it rolls back to the previous version without any manual intervention.
+I added this after seeing how easy it is for a deploy to silently fail without
+anyone noticing.
 
-Production deployments require a manual approval step. I did this because
-deploying to production automatically on every push felt risky — having a
-human review what's going out gives a chance to catch anything before it
-affects users.
+Production requires a manual approval before the deploy runs. I did this
+deliberately because pushing straight to production on every commit felt like
+a bad idea — having someone review what's going out gives a chance to catch
+anything before real users are affected.
+
+Every Docker image gets tagged with the Git commit SHA so you can always
+trace exactly which version of the code is running, and roll back to any
+previous commit if something goes wrong.
 
 ### Infrastructure
 
-I chose to run the app on a single EC2 t3.micro with Docker Compose rather
-than ECS and RDS. The main reason was cost — ECS Fargate and RDS together
-would run around $50-100 a month even with nothing happening, while a t3.micro
-stays within the AWS free tier. For a project at this scale the tradeoff makes
-sense and the containerisation approach is the same either way.
+I used a single EC2 t3.micro running Docker Compose rather than ECS and RDS.
+The honest reason is cost — ECS Fargate with RDS would run $50-100 a month
+at minimum just sitting there. The t3.micro sits within the AWS free tier so
+it costs nothing to run. The containerisation approach is the same either way
+so nothing is lost from a learning perspective.
 
-I picked Redis over PostgreSQL for the database because it fits what the
-/process endpoint actually needs. Each job gets stored with an expiry time,
-there's a list of recent jobs capped at 100 entries, and memory usage stays
-low. PostgreSQL would be overkill for this use case.
+Redis made more sense than PostgreSQL for what the /process endpoint actually
+does. It stores job results with an automatic expiry time, keeps a list of the
+last 100 jobs, and uses very little memory on a small server. PostgreSQL would
+have been overkill.
 
-I set up the Load Balancer with two target groups even though there's only one
-server right now. This means when a new version deploys, traffic can be shifted
-from the old container to the new one at the ALB level rather than having any
-gap in service.
+The Load Balancer sits in front of the EC2 and handles HTTPS termination. The
+app itself just runs on HTTP port 3000 internally — it doesn't need to know
+anything about SSL. The ALB also gives a stable domain entry point that stays
+the same even if the server behind it changes.
 
-I stored Terraform state in S3 with a DynamoDB lock table. The reason for this
-is that if state is only stored locally and something happens to the machine,
-or if someone else needs to run Terraform, the state would be out of sync and
-changes could conflict or get lost. Remote state solves that problem.
+I set up two target groups on the ALB even though there's only one server. The
+reason is that this makes it possible to do zero-downtime deployments later by
+shifting traffic from the old container to the new one at the network level
+rather than having a gap in service.
+
+Terraform state goes into S3 with a DynamoDB lock table. If state only lived
+locally and the laptop was lost or someone else needed to run Terraform, the
+infrastructure would become unmanageable. Remote state means it's always
+accessible and two people can never apply conflicting changes at the same time.
