@@ -60,6 +60,9 @@ Open these directly in your browser:
 https://app.ezekiel.ink/health
 https://app.ezekiel.ink/status
 ```
+<img width="1440" height="900" alt=":HELATH" src="https://github.com/user-attachments/assets/d9f15faf-1b9a-4fac-8dfd-8f05bc3bbdd0" />
+
+<img width="1440" height="900" alt=":status" src="https://github.com/user-attachments/assets/fb60e3f2-c821-42b5-859b-b082d52f1b5a" />
 
 For the POST endpoint use curl or Postman:
 ```bash
@@ -68,7 +71,13 @@ curl -X POST https://app.ezekiel.ink/process \
   -d '{"data": "hello world"}'
 ```
 
+<img width="1440" height="900" alt=":PROCESS" src="https://github.com/user-attachments/assets/ff096565-7204-4981-a070-95f617c9db0a" />
+
+
 Locally the app runs on `http://localhost:3000` with the same endpoints.
+
+<img width="1440" height="900" alt="Screenshot 2026-03-11 at 10 11 09" src="https://github.com/user-attachments/assets/5e743144-6175-41b9-8d78-72a5c4b1cce5" />
+
 
 **Available endpoints:**
 
@@ -149,6 +158,9 @@ terraform plan
 terraform apply
 ```
 
+<img width="1440" height="900" alt="Terraform apply" src="https://github.com/user-attachments/assets/8b6cdaf8-7568-46b6-bb03-a1318aa8a53c" />
+
+
 Takes about 5-10 minutes. The ACM certificate validation is the slowest part.
 
 **6. Add GitHub secrets**
@@ -170,10 +182,14 @@ git push origin main
 Watch it run in the GitHub Actions tab. Production deployment requires 
 manual approval — click into the deploy-production job and hit Approve.
 
+<img width="1440" height="900" alt="CICD" src="https://github.com/user-attachments/assets/8d9a4c1e-7820-4766-8875-ac39c3130843" />
+
+
 **To destroy everything:**
 ```bash
 terraform destroy
 ```
+<img width="1440" height="900" alt="Screenshot 2026-03-11 at 10 18 15" src="https://github.com/user-attachments/assets/864bd36a-84d1-4fbe-8ba0-2b5a82e8813b" />
 
 ---
 
