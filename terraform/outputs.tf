@@ -1,6 +1,6 @@
 output "application_url" {
-  description = "Public URL of the application (via ALB)"
-  value       = "http://${aws_lb.main.dns_name}"
+  description = "Public HTTPS URL of the application"
+  value       = "https://${var.app_subdomain}.${var.domain_name}"
 }
 
 output "alb_dns" {

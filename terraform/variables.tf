@@ -67,3 +67,15 @@ variable "ssh_allowed_cidr" {
   type        = string
   default     = "0.0.0.0/0"   
 }
+
+variable "domain_name" {
+  description = "Root domain name"
+  type        = string
+  default     = "ezekiel.ink"
+}
+
+variable "app_subdomain" {
+  description = "Subdomain for the app"
+  type        = string
+  default     = "app"
+}

@@ -160,7 +160,7 @@ jobs:
           ALB_DNS: ${{ secrets.ALB_DNS }}
         run: |
           sleep 5
-          curl -sf http://$ALB_DNS/health
+          curl -sf https://app.ezekiel.ink/health
 
   deploy-production:
     name: Deploy → Production
@@ -210,4 +210,4 @@ jobs:
           ALB_DNS: ${{ secrets.ALB_DNS_PROD }}
         run: |
           sleep 5
-          curl -sf http://$ALB_DNS/health
+          curl -sf https://app.ezekiel.ink/health
