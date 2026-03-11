@@ -197,8 +197,7 @@ terraform destroy
 
 ### Security
 
-I ran the app as a non-root user inside Docker. The reason for this is simple
-— if someone finds a vulnerability in the app and exploits it, they still
+I ran the app as a non-root user inside Docker. The reason for this is simple, if someone finds a vulnerability in the app and exploits it, they still
 can't touch anything outside the container. It's a small change that removes
 a whole class of risk.
 
@@ -224,7 +223,7 @@ in GitHub Secrets. The .env.local and terraform.tfvars files are in
 ### CI/CD
 
 The pipeline runs tests before anything else. If a test fails the whole
-pipeline stops — no image gets built, nothing gets deployed. This means
+pipeline stops, no image gets built, nothing gets deployed. This means
 whatever is in the registry has always passed the test suite.
 
 After deploying the new container the pipeline waits and checks the /health
@@ -235,7 +234,7 @@ anyone noticing.
 
 Production requires a manual approval before the deploy runs. I did this
 deliberately because pushing straight to production on every commit felt like
-a bad idea — having someone review what's going out gives a chance to catch
+a bad idea, having someone review what's going out gives a chance to catch
 anything before real users are affected.
 
 Every Docker image gets tagged with the Git commit SHA so you can always
@@ -245,7 +244,7 @@ previous commit if something goes wrong.
 ### Infrastructure
 
 I used a single EC2 t3.micro running Docker Compose rather than ECS and RDS.
-The honest reason is cost — ECS Fargate with RDS would run $50-100 a month
+The honest reason is cost, ECS Fargate with RDS would run $50-100 a month
 at minimum just sitting there. The t3.micro sits within the AWS free tier so
 it costs nothing to run. The containerisation approach is the same either way
 so nothing is lost from a learning perspective.
@@ -256,7 +255,7 @@ last 100 jobs, and uses very little memory on a small server. PostgreSQL would
 have been overkill.
 
 The Load Balancer sits in front of the EC2 and handles HTTPS termination. The
-app itself just runs on HTTP port 3000 internally — it doesn't need to know
+app itself just runs on HTTP port 3000 internally, it doesn't need to know
 anything about SSL. The ALB also gives a stable domain entry point that stays
 the same even if the server behind it changes.
 
