@@ -29,11 +29,14 @@ cp .env.example .env.local
 docker compose up --build
 ```
 
+
+
 First time takes a couple of minutes. You'll know it's ready when you see:
 ```
 app | {"message":"Server listening","port":3000}
 app | {"message":"Redis connected"}
 ```
+<img width="1440" height="900" alt="compose d" src="https://github.com/user-attachments/assets/9eb08769-2d22-495c-b415-045627d0d358" />
 
 **4. Run the tests**
 ```bash
